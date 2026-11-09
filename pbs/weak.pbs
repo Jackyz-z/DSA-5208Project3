@@ -1,0 +1,24 @@
+#!/bin/bash
+#PBS -N dt_weak
+#PBS -l select=2:ncpus=64:mpiprocs=64:mem=200gb
+#PBS -l walltime=04:00:00
+#PBS -j oe
+##PBS -q <queue>
+##PBS -P <project>
+
+# Weak scaling: ROWS_PER_RANK synthetic rows on every rank.
+
+set -euo pipefail
+source "$PBS_O_WORKDIR/pbs/env.sh"
+CSV=$RESULTS/results.csv
+ROWS_PER_RANK=${ROWS_PER_RANK:-500000}
+MAX_RANKS=$((N_NODES * CORES_PER_NODE))
+
+for ranks in 1 2 4 8 16 32 64 128; do
+  (( ranks > MAX_RANKS )) && break
+  file=$DATA/synth_weak_${ranks}.bin
+  [[ -f "$file" ]] || python3 scripts/gen_synthetic.py "$file" --rows $((ranks * ROWS_PER_RANK)) --features 32
+  for comm in allreduce reducescatter; do
+    run_mpi "$ranks" 1 --train "$file" --max-depth 10 --mode data --comm "$comm" --csv "$CSV" --tag weak
+  done
+done

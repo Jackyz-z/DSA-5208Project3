@@ -1,0 +1,35 @@
+#!/bin/bash
+#PBS -N dt_hybrid
+#PBS -l select=1:ncpus=64:mpiprocs=64:mem=200gb
+#PBS -l walltime=03:00:00
+#PBS -j oe
+##PBS -q <queue>
+##PBS -P <project>
+
+# 1) OpenMP-only scaling on one rank, both thread strategies.
+# 2) Fixed core count, varying the MPI ranks x OpenMP threads split.
+
+set -euo pipefail
+source "$PBS_O_WORKDIR/pbs/env.sh"
+CSV=$RESULTS/results.csv
+LEVELS=$RESULTS/levels.csv
+REPEATS=${REPEATS:-3}
+CORES=$CORES_PER_NODE
+common=(--train "$TRAIN" --test "$TEST" --max-depth 10 --mode data --csv "$CSV" --level-csv "$LEVELS")
+
+for rep in $(seq "$REPEATS"); do
+  for threads in 1 2 4 8 16 32 64; do
+    (( threads > CORES )) && break
+    for omp in feature sample; do
+      run_mpi 1 "$threads" "${common[@]}" --omp "$omp" --tag omp_threads
+    done
+  done
+
+  for ranks in 1 2 4 8 16 32 64; do
+    (( ranks > CORES )) && break
+    threads=$((CORES / ranks))
+    for omp in feature sample; do
+      run_mpi "$ranks" "$threads" "${common[@]}" --omp "$omp" --tag hybrid
+    done
+  done
+done

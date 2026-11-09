@@ -1,0 +1,32 @@
+#!/bin/bash
+#PBS -N dt_gpu
+#PBS -l select=1:ncpus=16:mpiprocs=4:ngpus=4:mem=128gb
+#PBS -l walltime=02:00:00
+#PBS -j oe
+##PBS -q <gpu queue>
+##PBS -P <project>
+
+# CUDA histogram backend: one MPI rank per GPU, compared against CPU ranks
+# using the same number of cores. Build with -DDT_ENABLE_CUDA=ON first.
+
+set -euo pipefail
+NEED_CUDA=1
+source "$PBS_O_WORKDIR/pbs/env.sh"
+CSV=$RESULTS/results.csv
+LEVELS=$RESULTS/levels.csv
+REPEATS=${REPEATS:-3}
+N_GPUS=${N_GPUS:-$(nvidia-smi -L | wc -l)}
+nvidia-smi
+common=(--train "$TRAIN" --test "$TEST" --max-depth 10 --mode data --csv "$CSV" --level-csv "$LEVELS" --tag gpu)
+
+for rep in $(seq "$REPEATS"); do
+  for gpus in 1 2 4 8; do
+    (( gpus > N_GPUS )) && break
+    for comm in allreduce reducescatter; do
+      OMP_NUM_THREADS=1 mpirun -np "$gpus" --bind-to none "$BUILD/dt_mpi" "${common[@]}" \
+        --backend cuda --comm "$comm"
+    done
+  done
+  # CPU reference on the same node.
+  OMP_NUM_THREADS=$CORES_PER_NODE mpirun -np 1 --bind-to none "$BUILD/dt_mpi" "${common[@]}" --backend cpu
+done

@@ -1,0 +1,9 @@
+build/
+build-*/
+data/
+results/
+figures/
+*.o
+*.bin
+*.csv.gz
+__pycache__/

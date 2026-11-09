@@ -1,0 +1,21 @@
+#!/bin/bash
+#PBS -N dt_validate
+#PBS -l select=1:ncpus=16:mpiprocs=16:mem=32gb
+#PBS -l walltime=01:00:00
+#PBS -j oe
+# Adjust queue / project to your Vanda allocation, e.g.:
+##PBS -q <queue>
+##PBS -P <project>
+
+set -euo pipefail
+source "$PBS_O_WORKDIR/pbs/env.sh"
+
+# A 1M-row subset keeps the many validation runs short.
+SUBSET=$DATA/higgs_train_1M.bin
+if [[ ! -f "$SUBSET" ]]; then
+  python3 scripts/prepare_data.py "$DATA/HIGGS.csv.gz" --train "$SUBSET" --limit 1000000
+fi
+
+"$BUILD/dt_tests"
+MPIRUN="mpirun --bind-to none" DEPTH=10 scripts/validate.sh "$BUILD" "$SUBSET" "$TEST" 8 \
+  | tee "$RESULTS/validation.txt"

@@ -1,0 +1,30 @@
+#!/bin/bash
+#PBS -N dt_depth
+#PBS -l select=1:ncpus=64:mpiprocs=64:mem=200gb
+#PBS -l walltime=02:00:00
+#PBS -j oe
+##PBS -q <queue>
+##PBS -P <project>
+
+# How tree depth and bin count shift the balance between computation and
+# communication (histogram messages grow with the number of frontier nodes).
+
+set -euo pipefail
+source "$PBS_O_WORKDIR/pbs/env.sh"
+CSV=$RESULTS/results.csv
+LEVELS=$RESULTS/levels.csv
+RANKS=${RANKS:-32}
+
+for depth in 4 6 8 10 12 14; do
+  for comm in allreduce reducescatter; do
+    run_mpi "$RANKS" 1 --train "$TRAIN" --test "$TEST" --max-depth "$depth" --mode data \
+      --comm "$comm" --csv "$CSV" --level-csv "$LEVELS" --tag depth
+  done
+  run_mpi 28 1 --train "$TRAIN" --test "$TEST" --max-depth "$depth" --mode feature \
+    --csv "$CSV" --level-csv "$LEVELS" --tag depth
+done
+
+for bins in 16 32 64 128 256; do
+  run_mpi "$RANKS" 1 --train "$TRAIN" --test "$TEST" --max-depth 10 --bins "$bins" --mode data \
+    --csv "$CSV" --tag bins
+done

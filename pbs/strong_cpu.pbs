@@ -1,0 +1,36 @@
+#!/bin/bash
+#PBS -N dt_strong_cpu
+#PBS -l select=2:ncpus=64:mpiprocs=64:mem=200gb
+#PBS -l walltime=04:00:00
+#PBS -j oe
+##PBS -q <queue>
+##PBS -P <project>
+
+# Strong scaling on the full HIGGS training set with pure MPI (1 thread per
+# rank): data-parallel with both collectives, and feature-parallel.
+
+set -euo pipefail
+source "$PBS_O_WORKDIR/pbs/env.sh"
+CSV=$RESULTS/results.csv
+LEVELS=$RESULTS/levels.csv
+REPEATS=${REPEATS:-3}
+MAX_RANKS=$((N_NODES * CORES_PER_NODE))
+common=(--train "$TRAIN" --test "$TEST" --max-depth 10 --csv "$CSV" --level-csv "$LEVELS" --tag strong_cpu)
+
+for rep in $(seq "$REPEATS"); do
+  OMP_NUM_THREADS=1 "$BUILD/dt_serial" --train "$TRAIN" --test "$TEST" --max-depth 10 \
+    --csv "$CSV" --tag strong_cpu --dump-tree "$RESULTS/higgs_tree_serial.txt"
+  for ranks in 1 2 4 8 16 32 64 128; do
+    (( ranks > MAX_RANKS )) && break
+    run_mpi "$ranks" 1 "${common[@]}" --mode data --comm allreduce
+    run_mpi "$ranks" 1 "${common[@]}" --mode data --comm reducescatter
+    # Feature-parallel cannot use more ranks than there are features (28).
+    (( ranks <= 28 )) && run_mpi "$ranks" 1 "${common[@]}" --mode feature
+  done
+done
+
+# Effect of histogram subtraction.
+for ranks in 1 16 64; do
+  (( ranks > MAX_RANKS )) && break
+  run_mpi "$ranks" 1 "${common[@]}" --mode data --no-subtract
+done
